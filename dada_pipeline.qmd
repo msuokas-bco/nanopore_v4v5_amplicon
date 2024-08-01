@@ -60,6 +60,8 @@ unzip trimmed-sequences.qza
 
 **Note.** Parameters allow one error in sequencing adapters, no errors in barcode sequence and 1 and 2 errors in pcr primers, respectively
 
+\newpage
+
 #### 
 Load libraries
 
@@ -74,7 +76,7 @@ library(kableExtra);packageVersion("kableExtra")
 library(mia);packageVersion("mia")
 ```
 
-#### Setting parameters
+#### Set parameters
 
 ```{r, warning=FALSE,message=FALSE, size="tiny"}
 # Path variables
@@ -90,7 +92,9 @@ dir.create(exportloc)
 metadata <- data.frame(read_tsv(meta_file))
 ```
 
-#### Importing reads
+\newpage
+
+#### Import reads
 
 nr072 was removed from dataset (0 reads causing error in denoising step).
 
@@ -110,6 +114,8 @@ Checking read quality of two first samples
 pI <- plotQualityProfile(fnFs[1:2])
 pI
 ```
+
+\newpage
 
 #### Filter and trim reads
 
@@ -140,13 +146,17 @@ plotErrors(errF, nominalQ = TRUE)
 
 ```
 
-#### Denoising sequences 
+\newpage
+
+#### Denoise sequences 
 
 ```{r, warning=FALSE, message=FALSE, size="tiny"}
 dadaFs <- dada(filtFs, err = errF, multithread = TRUE)
 ```
 
-#### Building ASV table
+\newpage
+
+#### Build ASV table
 
 ```{r, warning=FALSE, message=FALSE, size="tiny"}
 seqtab <- makeSequenceTable(dadaFs)
@@ -162,11 +172,13 @@ seqtab.nochim <- removeBimeraDenovo(seqtab, method = "consensus",
 dim(seqtab.nochim)
 ```
 
-Amount of data left after chimera removal
+Amount of data remaining after chimera removal
 
 ```{r}
 sum(seqtab.nochim)/sum(seqtab)
 ```
+
+\newpage
 
 #### Summary table
 
@@ -183,7 +195,9 @@ kable(track, caption="Summary table")  %>%
                 row_spec(0,background = "teal", color = "ivory")
 ```
 
-#### Assigning taxonomy
+\newpage
+
+#### Assign taxonomy
 
 ```{r, warning=FALSE, message=FALSE, size="tiny"}
 #Create a DNAStringSet from the ASV sequences
@@ -205,7 +219,9 @@ taxid <-t(sapply(ids, function(x) {
 colnames(taxid) <- ranks; rownames(taxid) <- getSequences(seqtab.nochim)
 ```
 
-#### Building phyloseq object
+\newpage
+
+#### Build phyloseq object
 
 ```{r, warning=FALSE, message=FALSE, size="tiny"}
 pseq <- phyloseq(otu_table(seqtab.nochim, taxa_are_rows = FALSE),
@@ -217,7 +233,7 @@ pseq
 ```
 
 ```{r, warning=FALSE, message=FALSE, size="tiny"}
-#create DNA object and store sequences 
+#create sequences from rownames to refseq 
 seqs <- DNAStringSet(taxa_names(pseq))
 names(seqs) <- taxa_names(pseq)
 pseq <- merge_phyloseq(pseq, seqs)
@@ -228,7 +244,64 @@ colnames(tax_table(pseq)) <- c("Kingdom", "Phylum", "Class",
   "Order", "Family", "Genus", "Species")
 ```
 
+Remove non-bacterial variants
+
 ```{r, warning=FALSE, message=FALSE, size="tiny"}
+#remove non-bacterial taxa
 pseq <- subset_taxa(pseq, Kingdom != is.na(Kingdom))
 pseq
 ```
+
+\newpage
+
+#### Write results to files
+
+Abundance table is transponed and written as tsv file
+
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+#variant names in rows
+ASV_names <- taxa_names(pseq)
+#sample names will be columns
+ASV_counts <- t(otu_table(pseq))
+ASVdf <- (data.frame(ASV_names,ASV_counts))
+#write
+write_tsv(ASVdf, paste0(exportloc,"asvs.tsv"))
+```
+
+Likewise taxonomy table is saved as tsv
+
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+#variant names in rows
+ASV_names <- taxa_names(pseq)
+#taxonomy ranks in columns
+taxonomy <- (data.frame(ASV_names, tax_table(pseq)))
+#write
+write_tsv(taxonomy,paste0(exportloc,"taxonomy.tsv"))
+```
+
+Variant sequences are saved into fasta file
+
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+pseq %>% refseq() %>% writeXStringSet(paste0(exportloc,"repseq.fasta"),
+                                      append = FALSE, compress = FALSE,
+                                      format = "fasta")
+```
+
+Compatible metadata file as tsv
+
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+sampleid <- sample_names(pseq)
+metafile <- sample_data(pseq)
+metadf <- data.frame(sampleid,metafile)
+write_tsv(metadf, paste0(exportloc,"metadata.tsv"))
+```
+
+#### Observations
+
+Custom sup basecalling of nanopore sequences produce read qualities matching Illumina ja Ion Torrent
+
+On a short amplicon length (truncated to 350 bp) error profiles follow expected frequency
+
+Proportion of unique reads is much smaller compared to long reads
+
+Thus, dada2 works much better on shorter read lengths than with 1,5 kbp full-length 16S rRNA
