@@ -1,0 +1,234 @@
+---
+title: "Processing short nanopore reads with dada2"
+format: pdf
+pdf-engine: lualatex
+editor: visual
+mainfont: Aptos
+monofont: PT Mono
+always_allow_html: yes
+header-includes:
+   \usepackage[dvipsnames]{xcolor}
+   \definecolor{teal}{rgb}{0.0, 0.5, 0.5}
+   \definecolor{ivory}{rgb}{1.0, 1.0, 0.94}
+---
+
+```{r, include=FALSE, message = FALSE, warning = FALSE}
+# This will allow to use different font sizes inside code chunks
+# Won't be included in the report
+def.chunk.hook  <- knitr::knit_hooks$get("chunk")
+knitr::knit_hooks$set(chunk = function(x, options) {
+  x <- def.chunk.hook(x, options)
+  ifelse(options$size != "normalsize", paste0("\n \\", options$size,"\n\n", x, "\n\n \\normalsize"), x)
+})
+```
+
+#### Preprosessing Ion Torrent adapter reads
+
+*Trim forward reads with Adapter A and trP1(rc) sequences*
+
+cutadapt -g "CCATCTCATCCCTGCGTGTCTCCGACTCAG;o=30…ATCACCGACTGCCCATAGAGAGG;o=23" --trimmed-only -e 0.05 -o ev_forward.fastq.gz ev_reads_hq.fastq.gz 
+
+*Trim reverse reads with trP1 and Adapter A(rc) sequences*
+
+cutadapt -g ”CCTCTCTATGGGCAGTCGGTGAT;o=23…CTGAGTCGGAGACACGCAGGGATGAGATGG;o=30” --trimmed-only -e 0.05 -o ev_reverse.fastq.gz ev_reads_hq.fastq.gz
+
+*Reverse-complement reverse reads*
+
+seqkit seq -rp -t DNA -o ev_rcomp.fasta.gz ev_reverce.fasta.gz
+
+*Merge with forward reads*
+
+cat ev_forward.fasta.gz ev_rcomp.fasta.gz \> raw_005.fasta.gz
+
+*Import data to qiime*
+
+qiime tools import --type MultiplexedSingleEndBarcodeInSequence --input-path raw_005.fasta.gz --output-path raw_005.qza 
+
+*Demultiplex*
+
+qiime cutadapt demux-single --i-seqs raw_005.qza --m-barcodes-file jt_meta.tsv --m-barcodes-column Barcode_seq --output-dir demuxed --p-error-rate 0 --p-anchor-barcode
+
+*Trim pcr primers (519F and 926R)*
+
+qiime cutadapt trim-single --i-demultiplexed-sequences per_sample_sequences.qza --p-overlap 15 --p-discard-untrimmed --p-front ACAGCMGCCGCGGTAATWC --o-trimmed-sequences trim1.qza
+
+qiime cutadapt trim-single --i-demultiplexed-sequences trim1.qza --p-adapter AAACTCAAAKGAATTGACGG --o-trimmed-sequences trimmed-sequences.qza
+
+*Decompress read files*
+
+unzip trimmed-sequences.qza
+
+**Note.** Parameters allow one error in sequencing adapters, no errors in barcode sequence and 1 and 2 errors in pcr primers, respectively
+
+#### 
+Load libraries
+
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+library(dada2);packageVersion("dada2")
+library(knitr);packageVersion("knitr")
+library(Biostrings);packageVersion("Biostrings")
+library(DECIPHER);packageVersion("DECIPHER")
+library(phyloseq);packageVersion("phyloseq")
+library(tidyverse);packageVersion("tidyverse")
+library(kableExtra);packageVersion("kableExtra")
+library(mia);packageVersion("mia")
+```
+
+#### Setting parameters
+
+```{r, warning=FALSE,message=FALSE, size="tiny"}
+# Path variables
+path <- "data/reads/"
+training <- "~/feature_classifiers/SILVA_SSU_r138_2019.RData"
+meta_file <- "data/jt_meta.tsv"
+exportloc <- "results/"
+# Variables: truncation length, phix (Illumina)
+truncation <- 350
+#Creates results directory
+dir.create(exportloc)
+#metadata
+metadata <- data.frame(read_tsv(meta_file))
+```
+
+#### Importing reads
+
+nr072 was removed from dataset (0 reads causing error in denoising step).
+
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+#List files inside directory
+list.files(path)
+# Forward fastq filenames have format: SAMPLENAME_R1_001.fastq
+fnFs <- sort(list.files(path, pattern="L001_R1_001.fastq.gz", full.names = TRUE))
+# Extract sample names, assuming filenames have format: SAMPLENAME_XXX.fastq
+sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
+```
+
+Checking read quality of two first samples
+
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+# Base quality plot
+pI <- plotQualityProfile(fnFs[1:2])
+pI
+```
+
+#### Filter and trim reads
+
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+# Filtered files are placed in filtered subdirectory
+filtFs <- file.path(path, "filtered", paste0(sample.names,
+                                             "_F_filt.fastq.gz"))
+# For single end data sets without phix control
+names(filtFs) <- sample.names
+out <- filterAndTrim(fnFs, filtFs, truncLen=truncation,
+                     maxN = 0, maxEE = 2 , truncQ = 2,
+                     compress = TRUE, multithread = TRUE,
+                     rm.phix = FALSE)
+```
+
+#### Learn and plot error profile
+
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+# Forward read error rate
+errF <- learnErrors(filtFs, multithread = TRUE)
+```
+
+Plotting error profile
+
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+# Plotting error rate profile for forward reads
+plotErrors(errF, nominalQ = TRUE)
+
+```
+
+#### Denoising sequences 
+
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+dadaFs <- dada(filtFs, err = errF, multithread = TRUE)
+```
+
+#### Building ASV table
+
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+seqtab <- makeSequenceTable(dadaFs)
+# Dimensions of ASV table
+dim(seqtab)
+```
+
+Removing chimeras
+
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+seqtab.nochim <- removeBimeraDenovo(seqtab, method = "consensus",
+                                    multithread = TRUE, verbose = TRUE)
+dim(seqtab.nochim)
+```
+
+Amount of data left after chimera removal
+
+```{r}
+sum(seqtab.nochim)/sum(seqtab)
+```
+
+#### Summary table
+
+```{r, warning=FALSE, message=FALSE, size="small"}
+getN <- function(x) sum(getUniques(x))
+track <- cbind(out, sapply(dadaFs, getN), rowSums(seqtab.nochim),
+               rowSums(seqtab.nochim != 0))
+#If processing a single sample, remove the sapply calls
+colnames(track) <- c("Input", "Filtered", "DenoisedF", "Nonchimeric",
+                     "N:o of variants")
+rownames(track) <- sample.names
+kable(track, caption="Summary table")  %>%
+  kable_styling(latex_options=c("striped", "HOLD_position")) %>%
+                row_spec(0,background = "teal", color = "ivory")
+```
+
+#### Assigning taxonomy
+
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+#Create a DNAStringSet from the ASV sequences
+repseq <- DNAStringSet(getSequences(seqtab.nochim))
+# CHANGE TO THE PATH OF YOUR TRAINING SET
+load(training)
+ids <- IdTaxa(repseq, trainingSet, strand = "top",
+              processors = 3, verbose = FALSE,
+              threshold = 50)
+ranks <- c("domain", "phylum", "class", "order", "family",
+           "genus", "species") 
+# Convert the output to a matrix analogous to the output from assignTaxonomy
+taxid <-t(sapply(ids, function(x) {
+        m <- match(ranks, x$rank)
+        taxa <- x$taxon[m]
+        taxa[startsWith(taxa, "unclassified_")] <- NA
+        taxa
+}))
+colnames(taxid) <- ranks; rownames(taxid) <- getSequences(seqtab.nochim)
+```
+
+#### Building phyloseq object
+
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+pseq <- phyloseq(otu_table(seqtab.nochim, taxa_are_rows = FALSE),
+                 tax_table(taxid))
+row.names(metadata) <- sample_names(pseq)
+sample_data(pseq) <- metadata
+pseq
+
+```
+
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+#create DNA object and store sequences 
+seqs <- DNAStringSet(taxa_names(pseq))
+names(seqs) <- taxa_names(pseq)
+pseq <- merge_phyloseq(pseq, seqs)
+#new variant names
+taxa_names(pseq) <- paste0("ASV", seq(ntaxa(pseq)))
+#capitalise taxonomic ranks
+colnames(tax_table(pseq)) <- c("Kingdom", "Phylum", "Class", 
+  "Order", "Family", "Genus", "Species")
+```
+
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+pseq <- subset_taxa(pseq, Kingdom != is.na(Kingdom))
+pseq
+```
