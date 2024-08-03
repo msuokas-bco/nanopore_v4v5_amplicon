@@ -4,3 +4,5 @@
 .Ruserdata
 data/
 results/
+dada_pipeline_cache/
+dada_pipeline_files/
