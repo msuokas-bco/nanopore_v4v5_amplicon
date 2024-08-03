@@ -1,5 +1,6 @@
 ---
 title: "Processing short nanopore reads with dada2"
+author: "Marko Suokas"
 format: pdf
 pdf-engine: lualatex
 editor: visual
@@ -22,7 +23,7 @@ knitr::knit_hooks$set(chunk = function(x, options) {
 })
 ```
 
-#### Preprosessing Ion Torrent adapter reads
+#### Preprocess Ion Torrent adapter reads
 
 *Trim forward reads with Adapter A and trP1(rc) sequences*
 
@@ -58,14 +59,13 @@ qiime cutadapt trim-single --i-demultiplexed-sequences trim1.qza --p-adapter AAA
 
 unzip trimmed-sequences.qza
 
-**Note.** Parameters allow one error in sequencing adapters, no errors in barcode sequence and 1 and 2 errors in pcr primers, respectively
+**Note.** Parameters allow one error in sequencing adapters, no errors in barcode sequence and 1 and 2 errors in pcr primers, respectively.
 
-\newpage
+**Note.** Some options in commands require double dash and are not displayed correctly in rendered documents.
 
-#### 
-Load libraries
+#### Load libraries
 
-```{r, warning=FALSE, message=FALSE, size="tiny"}
+```{r libraries, warning=FALSE, message=FALSE, size="tiny"}
 library(dada2);packageVersion("dada2")
 library(knitr);packageVersion("knitr")
 library(Biostrings);packageVersion("Biostrings")
@@ -76,9 +76,11 @@ library(kableExtra);packageVersion("kableExtra")
 library(mia);packageVersion("mia")
 ```
 
+\newpage
+
 #### Set parameters
 
-```{r, warning=FALSE,message=FALSE, size="tiny"}
+```{r parameters, warning=FALSE,message=FALSE, size="tiny"}
 # Path variables
 path <- "data/reads/"
 training <- "~/feature_classifiers/SILVA_SSU_r138_2019.RData"
@@ -90,36 +92,34 @@ truncation <- 350
 dir.create(exportloc)
 #metadata
 metadata <- data.frame(read_tsv(meta_file))
+#set knitr cache path
+knitr::opts_chunk$set(cache.path = "cache/")
 ```
-
-\newpage
 
 #### Import reads
 
 nr072 was removed from dataset (0 reads causing error in denoising step).
 
-```{r, warning=FALSE, message=FALSE, size="tiny"}
-#List files inside directory
-list.files(path)
+```{r import, warning=FALSE, message=FALSE, size="tiny"}
 # Forward fastq filenames have format: SAMPLENAME_R1_001.fastq
 fnFs <- sort(list.files(path, pattern="L001_R1_001.fastq.gz", full.names = TRUE))
-# Extract sample names, assuming filenames have format: SAMPLENAME_XXX.fastq
+# Extract sample names, assuming filenames have format: SAMPLENAME_XXX.fastq.gz
 sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
 ```
 
-Checking read quality of two first samples
+Checking quality of first reads
 
-```{r, warning=FALSE, message=FALSE, size="tiny"}
+```{r quality_plot, warning=FALSE, message=FALSE, size="tiny"}
 # Base quality plot
-pI <- plotQualityProfile(fnFs[1:2])
-pI
+p <- plotQualityProfile(fnFs[1:4], n = 50000)
+p
 ```
 
 \newpage
 
 #### Filter and trim reads
 
-```{r, warning=FALSE, message=FALSE, size="tiny"}
+```{r filter, warning=FALSE, message=FALSE, size="tiny", cache=TRUE}
 # Filtered files are placed in filtered subdirectory
 filtFs <- file.path(path, "filtered", paste0(sample.names,
                                              "_F_filt.fastq.gz"))
@@ -127,20 +127,21 @@ filtFs <- file.path(path, "filtered", paste0(sample.names,
 names(filtFs) <- sample.names
 out <- filterAndTrim(fnFs, filtFs, truncLen=truncation,
                      maxN = 0, maxEE = 2 , truncQ = 2,
-                     compress = TRUE, multithread = TRUE,
+                     compress = TRUE, multithread = FALSE,
                      rm.phix = FALSE)
+
 ```
 
 #### Learn and plot error profile
 
-```{r, warning=FALSE, message=FALSE, size="tiny"}
+```{r learnerrors, warning=FALSE, message=FALSE, size="tiny", cache=TRUE}
 # Forward read error rate
 errF <- learnErrors(filtFs, multithread = TRUE)
 ```
 
-Plotting error profile
+Plot error profile
 
-```{r, warning=FALSE, message=FALSE, size="tiny"}
+```{r plot_errors, warning=FALSE, message=FALSE, size="tiny"}
 # Plotting error rate profile for forward reads
 plotErrors(errF, nominalQ = TRUE)
 
@@ -148,25 +149,23 @@ plotErrors(errF, nominalQ = TRUE)
 
 \newpage
 
-#### Denoise sequences 
+#### Denoise sequences
 
-```{r, warning=FALSE, message=FALSE, size="tiny"}
-dadaFs <- dada(filtFs, err = errF, multithread = TRUE)
+```{r denoise, warning=FALSE, message=FALSE, size="tiny", cache=TRUE}
+dadaFs <- dada(filtFs, err = errF, multithread = TRUE, verbose = FALSE)
 ```
-
-\newpage
 
 #### Build ASV table
 
-```{r, warning=FALSE, message=FALSE, size="tiny"}
+```{r table, warning=FALSE, message=FALSE, size="tiny"}
 seqtab <- makeSequenceTable(dadaFs)
 # Dimensions of ASV table
 dim(seqtab)
 ```
 
-Removing chimeras
+Remove chimeric variants
 
-```{r, warning=FALSE, message=FALSE, size="tiny"}
+```{r chimera, warning=FALSE, message=FALSE, size="tiny"}
 seqtab.nochim <- removeBimeraDenovo(seqtab, method = "consensus",
                                     multithread = TRUE, verbose = TRUE)
 dim(seqtab.nochim)
@@ -174,7 +173,7 @@ dim(seqtab.nochim)
 
 Amount of data remaining after chimera removal
 
-```{r}
+```{r, warning=FALSE, message=FALSE, size="tiny"}
 sum(seqtab.nochim)/sum(seqtab)
 ```
 
@@ -182,7 +181,7 @@ sum(seqtab.nochim)/sum(seqtab)
 
 #### Summary table
 
-```{r, warning=FALSE, message=FALSE, size="small"}
+```{r summary, warning=FALSE, message=FALSE, size="small"}
 getN <- function(x) sum(getUniques(x))
 track <- cbind(out, sapply(dadaFs, getN), rowSums(seqtab.nochim),
                rowSums(seqtab.nochim != 0))
@@ -190,8 +189,8 @@ track <- cbind(out, sapply(dadaFs, getN), rowSums(seqtab.nochim),
 colnames(track) <- c("Input", "Filtered", "DenoisedF", "Nonchimeric",
                      "N:o of variants")
 rownames(track) <- sample.names
-kable(track, caption="Summary table")  %>%
-  kable_styling(latex_options=c("striped", "HOLD_position")) %>%
+kable(track, caption="Summary table", booktabs = TRUE, longtable = TRUE)  %>%
+  kable_styling(latex_options=c("striped", "HOLD_position", "repeat_header")) %>%
                 row_spec(0,background = "teal", color = "ivory")
 ```
 
@@ -199,7 +198,7 @@ kable(track, caption="Summary table")  %>%
 
 #### Assign taxonomy
 
-```{r, warning=FALSE, message=FALSE, size="tiny"}
+```{r idtaxa, warning=FALSE, message=FALSE, size="tiny", cache=TRUE}
 #Create a DNAStringSet from the ASV sequences
 repseq <- DNAStringSet(getSequences(seqtab.nochim))
 # CHANGE TO THE PATH OF YOUR TRAINING SET
@@ -223,7 +222,7 @@ colnames(taxid) <- ranks; rownames(taxid) <- getSequences(seqtab.nochim)
 
 #### Build phyloseq object
 
-```{r, warning=FALSE, message=FALSE, size="tiny"}
+```{r phyloseq, warning=FALSE, message=FALSE, size="tiny", cache=TRUE}
 pseq <- phyloseq(otu_table(seqtab.nochim, taxa_are_rows = FALSE),
                  tax_table(taxid))
 row.names(metadata) <- sample_names(pseq)
@@ -249,6 +248,7 @@ Remove non-bacterial variants
 ```{r, warning=FALSE, message=FALSE, size="tiny"}
 #remove non-bacterial taxa
 pseq <- subset_taxa(pseq, Kingdom != is.na(Kingdom))
+pseq <- subset_taxa(pseq, Kingdom != "Eukaryota")
 pseq
 ```
 
@@ -296,12 +296,23 @@ metadf <- data.frame(sampleid,metafile)
 write_tsv(metadf, paste0(exportloc,"metadata.tsv"))
 ```
 
+Save most important objects as rds rile
+
+```{r rds, warning=FALSE, message=FALSE, size="tiny"}
+saveRDS(p, file="rds/qplot.rds")
+saveRDS(filtFs, file="rds/filtFs.rds")
+saveRDS(errF, file="rds/errF.rds")
+saveRDS(dadaFs, file="rds/dadaFs.rds")
+saveRDS(taxid, file="rds/taxid.rds")
+saveRDS(pseq, file="rds/pseq.rds")
+```
+
 #### Observations
 
-Custom sup basecalling of nanopore sequences produce read qualities matching Illumina ja Ion Torrent
+Customised sup basecalling of nanopore sequences produce quality matching Illumina ja Ion Torrent
 
-On a short amplicon length (truncated to 350 bp) error profiles follow expected frequency
+Error profiles of short amplicon (truncated to 350 bp) follow expected frequency
 
-Proportion of unique reads is much smaller compared to long reads
+Proportion of unique reads is smaller when compared to long amplicons
 
-Thus, dada2 works much better on shorter read lengths than with 1,5 kbp full-length 16S rRNA
+Thus, denoising works on shorter read lengths in contrast to 1,5 kbp full-length 16S rRNA gene. This is expected as algorithm relies on error-free reads that are used to build variant clusters. In long reads, even 99,5 % accuracy is not enough.
