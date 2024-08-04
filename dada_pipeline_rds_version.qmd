@@ -14,7 +14,7 @@ header-includes:
 ---
 
 ```{r, include=FALSE, message = FALSE, warning = FALSE}
-# This will allow to use different font sizes inside code chunks
+# This will allow to use different font sizes inside code
 # Won't be included in the report
 def.chunk.hook  <- knitr::knit_hooks$get("chunk")
 knitr::knit_hooks$set(chunk = function(x, options) {
@@ -22,6 +22,8 @@ knitr::knit_hooks$set(chunk = function(x, options) {
   ifelse(options$size != "normalsize", paste0("\n \\", options$size,"\n\n", x, "\n\n \\normalsize"), x)
 })
 ```
+
+This document utilises previously computed objects that are saved as rds files. Result objects are loaded from files. Original code can be executed by changing eval to TRUE.
 
 #### Preprocess Ion Torrent adapter reads
 
@@ -107,11 +109,17 @@ fnFs <- sort(list.files(path, pattern="L001_R1_001.fastq.gz", full.names = TRUE)
 sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
 ```
 
-Checking quality of first reads
+Checking read quality of first samples
 
-```{r quality_plot, warning=FALSE, message=FALSE, size="tiny"}
+```{r quality_plot, warning=FALSE, message=FALSE, size="tiny", eval=FALSE}
 # Base quality plot
 p <- plotQualityProfile(fnFs[1:4], n = 50000)
+p
+```
+
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+# Load base quality plot from saved object
+p <- readRDS("rds/qplot.rds")
 p
 ```
 
@@ -119,7 +127,7 @@ p
 
 #### Filter and trim reads
 
-```{r filter, warning=FALSE, message=FALSE, size="tiny", cache=TRUE}
+```{r filter, warning=FALSE, message=FALSE, size="tiny", eval=FALSE}
 # Filtered files are placed in filtered subdirectory
 filtFs <- file.path(path, "filtered", paste0(sample.names,
                                              "_F_filt.fastq.gz"))
@@ -132,12 +140,27 @@ out <- filterAndTrim(fnFs, filtFs, truncLen=truncation,
 saveRDS(out, file = "rds/out.rds")
 ```
 
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+# Filtered files are placed in filtered subdirectory
+filtFs <- file.path(path, "filtered", paste0(sample.names,
+                                             "_F_filt.fastq.gz"))
+# For single end data sets without phix control
+names(filtFs) <- sample.names
+# Load previously saved object
+out <-readRDS("rds/out.rds")
+```
+
 #### Learn and plot error profile
 
-```{r learnerrors, warning=FALSE, message=FALSE, size="tiny", cache=TRUE}
+```{r learnerrors, warning=FALSE, message=FALSE, size="tiny", eval=FALSE}
 # Forward read error rate
 errF <- learnErrors(filtFs, multithread = TRUE)
 saveRDS(errF, file = "rds/errF.rds")
+```
+
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+# Load previously saved object
+errF <- readRDS("rds/errF.rds")
 ```
 
 Plot error profile
@@ -151,9 +174,14 @@ plotErrors(errF, nominalQ = TRUE)
 
 #### Denoise sequences
 
-```{r denoise, warning=FALSE, message=FALSE, size="tiny", cache=TRUE}
+```{r denoise, warning=FALSE, message=FALSE, size="tiny", eval=FALSE}
 dadaFs <- dada(filtFs, err = errF, multithread = TRUE, verbose = FALSE)
 saveRDS(dadaFs, file = "rds/dadaFs.rds")
+```
+
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+# Load previously saved object
+dadaFs <- readRDS("rds/dadaFs.rds")
 ```
 
 #### Build ASV table
@@ -199,7 +227,7 @@ kable(track, caption="Summary table", booktabs = TRUE, longtable = TRUE)  %>%
 
 #### Assign taxonomy
 
-```{r idtaxa, warning=FALSE, message=FALSE, size="tiny", cache=TRUE}
+```{r idtaxa, warning=FALSE, message=FALSE, size="tiny", eval=FALSE}
 #Create a DNAStringSet from the ASV sequences
 repseq <- DNAStringSet(getSequences(seqtab.nochim))
 # CHANGE TO THE PATH OF YOUR TRAINING SET
@@ -220,11 +248,16 @@ colnames(taxid) <- ranks; rownames(taxid) <- getSequences(seqtab.nochim)
 saveRDS(taxid, file = "rds/taxid.rds")
 ```
 
+```{r, warning=FALSE, message=FALSE, size="tiny"}
+# Load previously saved object
+taxid <- readRDS("rds/taxid.rds")
+```
+
 \newpage
 
 #### Build phyloseq object
 
-```{r phyloseq, warning=FALSE, message=FALSE, size="tiny", cache=TRUE}
+```{r phyloseq, warning=FALSE, message=FALSE, size="tiny"}
 pseq <- phyloseq(otu_table(seqtab.nochim, taxa_are_rows = FALSE),
                  tax_table(taxid))
 row.names(metadata) <- sample_names(pseq)
@@ -246,7 +279,7 @@ colnames(tax_table(pseq)) <- c("Kingdom", "Phylum", "Class",
 
 Remove non-bacterial variants
 
-```{r, warning=FALSE, message=FALSE, size="tiny"}
+```{r prune, warning=FALSE, message=FALSE, size="tiny"}
 #remove non-bacterial taxa
 pseq <- subset_taxa(pseq, Kingdom != is.na(Kingdom))
 pseq <- subset_taxa(pseq, Kingdom != "Eukaryota")
@@ -305,7 +338,7 @@ Error profiles of short amplicon (truncated to 350 bp) follow expected frequency
 
 Proportion of unique reads is smaller when compared to long amplicons
 
-Thus, denoising works on shorter read lengths in contrast to 1,5 kbp full-length 16S rRNA gene. This is expected as algorithm relies on error-free reads that are used to build variant clusters. In long reads, even 99,5 % accuracy is not enough.
+Thus, denoising seem to work normally on shorter read lengths in contrast to 1,5 kbp full-length 16S rRNA gene. This is expected as algorithm relies on error-free reads that are used to build variant clusters. In long reads, even 99,5 % accuracy is simply not enough. At 1400 bp 0,5 % mean error rate means 7 sequencing errors per read
 
 #### Advantages of nanopore
 
@@ -325,12 +358,10 @@ Cost per bp in amplicon sequencing is great compared to MiSeq
 
 Homopolymer region accuracy is not quite as good as in Illumina
 
-High accuracy basecalling is computationally intensive (requires modern gpu with lot of ram)
+High accuracy basecalling is computationally intensive
 
-Software tools are not at the same level as in other platforms and require some knowledge
+Software tools are not quite at the same level as in other platforms and require more knowledge
 
 Consistency of flow-cells (number of functional pores) and repeatibility of sequencing is so far unclear
 
-Pores might die if library preparation contains contaminants originating from sample preparation (concerns mainly genomic sequencing)
-
-#### 
+Pores might die if library preparation contains contaminants originating from sample (concerns mainly genomic or transcriptomic sequencing)
