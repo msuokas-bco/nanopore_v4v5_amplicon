@@ -4,8 +4,6 @@
 .Ruserdata
 data/
 results/
-dada_pipeline_cache/
-dada_pipeline_files/
 .DS_Store
 cache/
 rds/
