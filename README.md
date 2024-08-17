@@ -10,4 +10,4 @@ dada_pipeline_rds_version.pdf - rendered pdf document
 
 dada_pipelinen_rds_version.docx - rendered docx document
 
-Data contains unpublished results and thus data, object and results are not publicly available
+Data is currently unpublished, so source and resource files are hidden and samples anonymised. Treat other data with respect. 
