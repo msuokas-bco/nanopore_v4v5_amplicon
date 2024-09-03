@@ -23,7 +23,7 @@ knitr::knit_hooks$set(chunk = function(x, options) {
 })
 ```
 
-Document utilises previously computed objects that have been saved as rds files. Result objects are loaded from files. Original code can be executed by changing eval to TRUE.
+Document utilises previously computed objects saved as rds files. Objects are reloaded from files. Original code can be executed by changing eval to TRUE or executing chunk inside Rstudio.
 
 #### Preprocess Ion Torrent adapter reads
 
@@ -67,7 +67,7 @@ unzip trimmed-sequences.qza
 
 #### Load libraries
 
-```{r libraries, warning = FALSE, message = FALSE, size="tiny"}
+```{r libraries, warning = FALSE, message = FALSE, size = "tiny"}
 library(dada2);packageVersion("dada2")
 library(knitr);packageVersion("knitr")
 library(Biostrings);packageVersion("Biostrings")
@@ -81,6 +81,7 @@ library(ggthemes);packageVersion("ggthemes")
 library(vegan);packageVersion("vegan")
 library(scater);packageVersion("scater")
 library(patchwork);packageVersion("patchwork")
+library(ggsci);packageVersion("ggsci")
 ```
 
 \newpage
@@ -98,16 +99,16 @@ truncation <- 350
 #Creates results directory
 dir.create(exportloc)
 #metadata
-metadata <- data.frame(read_tsv(meta_file))
+metadata <- data.frame(read_tsv(meta_file, show_col_types = FALSE))
 #set knitr cache path
 knitr::opts_chunk$set(cache.path = "cache/")
 ```
 
 #### Import reads
 
-nr072 was removed from dataset (0 reads causing error in denoising step).
+nr072 was removed from dataset (0 reads caused error in denoising).
 
-```{r import, warning=FALSE, message=FALSE, size="tiny"}
+```{r import, warning = FALSE, message = FALSE, size = "tiny"}
 # Forward fastq filenames have format: SAMPLENAME_R1_001.fastq
 fnFs <- sort(list.files(path, pattern="L001_R1_001.fastq.gz", full.names = TRUE))
 # Extract sample names, assuming filenames have format: SAMPLENAME_XXX.fastq.gz
@@ -116,13 +117,13 @@ sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
 
 Checking read quality of first samples
 
-```{r quality_plot, warning=FALSE, message=FALSE, size="tiny", eval=FALSE}
+```{r quality_plot, warning = FALSE, message=FALSE, size = "tiny", eval = FALSE}
 # Base quality plot
 p <- plotQualityProfile(fnFs[1:4], n = 50000)
 p
 ```
 
-```{r, warning=FALSE, message=FALSE, size="tiny", fig.dim = c(7,7)}
+```{r, warning=FALSE, message=FALSE, size = "tiny", fig.dim = c(7,7)}
 # Load base quality plot from saved object
 p <- readRDS("rds/qplot.rds")
 p
@@ -132,11 +133,11 @@ p
 
 #### Filter and trim reads
 
-```{r filter, warning = FALSE, message = FALSE, size="tiny", eval = FALSE}
+```{r filter, warning = FALSE, message = FALSE, size = "tiny", eval = FALSE}
 # Filtered files are placed in filtered subdirectory
 filtFs <- file.path(path, "filtered", paste0(sample.names,
                                              "_F_filt.fastq.gz"))
-# For single end data sets without phix control
+# For single end data sets, maxEE default values
 names(filtFs) <- sample.names
 out <- filterAndTrim(fnFs, filtFs, truncLen=truncation,
                      maxN = 0, maxEE = 2 , truncQ = 2,
@@ -145,7 +146,7 @@ out <- filterAndTrim(fnFs, filtFs, truncLen=truncation,
 saveRDS(out, file = "rds/out.rds")
 ```
 
-```{r, warning = FALSE, message = FALSE, size="tiny"}
+```{r, warning = FALSE, message = FALSE, size = "tiny"}
 # Filtered files are placed in filtered subdirectory
 filtFs <- file.path(path, "filtered", paste0(sample.names,
                                              "_F_filt.fastq.gz"))
@@ -157,7 +158,7 @@ out <-readRDS("rds/out.rds")
 
 #### Learn and plot error profile
 
-```{r learnerrors, warning = FALSE, message = FALSE, size="tiny", eval = FALSE}
+```{r learnerrors, warning = FALSE, message = FALSE, size = "tiny", eval = FALSE}
 # Forward read error rate
 errF <- learnErrors(filtFs, multithread = TRUE)
 saveRDS(errF, file = "rds/errF.rds")
@@ -172,7 +173,7 @@ errF <- readRDS("rds/errF.rds")
 
 Plot error profile
 
-```{r plot_error, warning = FALSE, message = FALSE, size="tiny", fig.dim = c(7,7)}
+```{r plot_error, warning = FALSE, message = FALSE, size = "tiny", fig.dim = c(7,7)}
 # Plotting error rate profile for forward reads
 plotErrors(errF, nominalQ = TRUE)
 ```
@@ -201,7 +202,7 @@ dim(seqtab)
 
 Remove chimeric variants
 
-```{r chimera, warning = FALSE, message = FALSE, size="tiny"}
+```{r chimera, warning = FALSE, message = FALSE, size = "tiny"}
 seqtab.nochim <- removeBimeraDenovo(seqtab, method = "consensus",
                                     multithread = TRUE, verbose = TRUE)
 dim(seqtab.nochim)
@@ -209,7 +210,7 @@ dim(seqtab.nochim)
 
 Amount of data remaining after chimera removal
 
-```{r, warning = FALSE, message = FALSE, size="tiny"}
+```{r, warning = FALSE, message = FALSE, size = "tiny"}
 sum(seqtab.nochim)/sum(seqtab)
 ```
 
@@ -218,13 +219,14 @@ sum(seqtab.nochim)/sum(seqtab)
 #### Summary table
 
 ```{r summary, warning = FALSE, message = FALSE, size="small"}
+#If processing a single sample, remove the sapply calls
 getN <- function(x) sum(getUniques(x))
 track <- cbind(out, sapply(dadaFs, getN), rowSums(seqtab.nochim),
                rowSums(seqtab.nochim != 0))
-#If processing a single sample, remove the sapply calls
 colnames(track) <- c("Input", "Filtered", "DenoisedF", "Nonchimeric",
                      "N:o of variants")
 rownames(track) <- sample.names
+#table
 kable(track, caption="Summary table", booktabs = TRUE, longtable = TRUE)  %>%
   kable_styling(latex_options=c("striped", "HOLD_position", "repeat_header")) %>%
                 row_spec(0,background = "teal", color = "ivory")
@@ -234,7 +236,7 @@ kable(track, caption="Summary table", booktabs = TRUE, longtable = TRUE)  %>%
 
 #### Assign taxonomy
 
-```{r idtaxa, warning = FALSE, message = FALSE, size="tiny", eval = FALSE}
+```{r idtaxa, warning = FALSE, message = FALSE, size = "tiny", eval = FALSE}
 #Create a DNAStringSet from the ASV sequences
 repseq <- DNAStringSet(getSequences(seqtab.nochim))
 # CHANGE TO THE PATH OF YOUR TRAINING SET
@@ -264,7 +266,7 @@ taxid <- readRDS("rds/taxid.rds")
 
 #### Build phyloseq object
 
-```{r phyloseq, warning = FALSE, message = FALSE, size="tiny"}
+```{r phyloseq, warning = FALSE, message = FALSE, size = "tiny"}
 pseq <- phyloseq(otu_table(seqtab.nochim, taxa_are_rows = FALSE),
                  tax_table(taxid))
 row.names(metadata) <- sample_names(pseq)
@@ -274,7 +276,7 @@ pseq
 
 Save repseq's as refseq and rename variants
 
-```{r, warning = FALSE, message = FALSE, size="tiny"}
+```{r, warning = FALSE, message = FALSE, size = "tiny"}
 #create sequences from rownames to refseq 
 seqs <- DNAStringSet(taxa_names(pseq))
 names(seqs) <- taxa_names(pseq)
@@ -288,7 +290,7 @@ colnames(tax_table(pseq)) <- c("Kingdom", "Phylum", "Class",
 
 Remove non-bacterial variants
 
-```{r prune, warning = FALSE, message = FALSE, size="tiny"}
+```{r prune, warning = FALSE, message = FALSE, size = "tiny"}
 #remove non-bacterial taxa
 pseq <- subset_taxa(pseq, Kingdom != is.na(Kingdom))
 pseq <- subset_taxa(pseq, Kingdom != "Eukaryota")
@@ -301,7 +303,7 @@ pseq
 
 Abundance table is transponed and written as tsv file
 
-```{r, warning = FALSE, message = FALSE, size="tiny"}
+```{r, warning = FALSE, message = FALSE, size = "tiny"}
 #variant names in rows
 ASV_names <- taxa_names(pseq)
 #sample names will be columns
@@ -313,7 +315,7 @@ write_tsv(ASVdf, paste0(exportloc,"asvs.tsv"))
 
 Likewise taxonomy table is saved as tsv
 
-```{r, warning = FALSE, message = FALSE, size="tiny"}
+```{r, warning = FALSE, message = FALSE, size = "tiny"}
 #variant names in rows
 ASV_names <- taxa_names(pseq)
 #taxonomy ranks in columns
@@ -324,7 +326,7 @@ write_tsv(taxonomy,paste0(exportloc,"taxonomy.tsv"))
 
 Variant sequences are saved into fasta file
 
-```{r, warning = FALSE, message = FALSE, size="tiny"}
+```{r, warning = FALSE, message = FALSE, size = "tiny"}
 pseq %>% refseq() %>% writeXStringSet(paste0(exportloc,"repseq.fasta"),
                                       append = FALSE, compress = FALSE,
                                       format = "fasta")
@@ -332,7 +334,7 @@ pseq %>% refseq() %>% writeXStringSet(paste0(exportloc,"repseq.fasta"),
 
 Compatible metadata file as tsv
 
-```{r, warning = FALSE, message = FALSE, size="tiny"}
+```{r, warning = FALSE, message = FALSE, size = "tiny"}
 sampleid <- sample_names(pseq)
 metafile <- sample_data(pseq)
 metadf <- data.frame(sampleid,metafile)
@@ -345,7 +347,7 @@ write_tsv(metadf, paste0(exportloc,"metadata.tsv"))
 
 Import data from qiime qza files
 
-```{r import_qiime, warning = FALSE, message = FALSE, size="tiny"}
+```{r import_qiime, warning = FALSE, message = FALSE, size = "tiny"}
 #read otu table and meta file
 imported <- loadFromQIIME2(featureTableFile = "data/otu-table.qza",
                         sampleMetaFile = "data/jt_meta2.tsv")
@@ -362,7 +364,7 @@ colnames(tax_table(vsearch_phylo)) <- c("Kingdom", "Phylum", "Class",
 
 Prune taxonomic data and convert back to TSE object
 
-```{r, warning = FALSE, message = FALSE, size="tiny"}
+```{r, warning = FALSE, message = FALSE, size = "tiny"}
 #remove non-bacterial taxa
 vsearch_phylo <- subset_taxa(vsearch_phylo, Kingdom != is.na(Kingdom))
 vsearch_phylo <- subset_taxa(vsearch_phylo, Kingdom != "Eukaryota")
@@ -376,15 +378,27 @@ vsearch
 
 Convert dada object to tse
 
-```{r, warning = FALSE, message = FALSE, size="tiny"}
+```{r, warning = FALSE, message = FALSE, size = "tiny"}
 dada <- makeTreeSummarizedExperimentFromPhyloseq(pseq)
+#create column for total counts
+colData(dada)$Sum <- colSums(assays(dada)$counts)
+colData(vsearch)$Sum <- colSums(assays(vsearch)$counts)
+
+#filter samples that have over 10 000 counts
+dada <- subsetSamples(dada, colData(dada)$Sum >= 10000)
+vsearch <- subsetSamples(vsearch, colData(vsearch)$Sum >= 10000)
+dim(dada)
+dim(vsearch)
+#create second copies
+dada_2 <- dada
+vsearch_2 <- vsearch
 ```
 
 \newpage
 
 Calculate shannon index and compare denoising ja clustering results
 
-```{r, warning = FALSE, message = FALSE, size="tiny"}
+```{r, warning = FALSE, message = FALSE, size = "tiny"}
 #calculate shannon indexes
 dada <- estimateDiversity(dada, index = "shannon")
 vsearch <- estimateDiversity(vsearch, index = "shannon")
@@ -393,7 +407,7 @@ shannon <- data.frame(dada2 = colData(dada)$shannon, vsearch = colData(vsearch)$
 #pivot table
 long_diversity <- shannon %>% pivot_longer(col = c(dada2,vsearch), names_to = "method", values_to = "shannon")
 #plot data
-plot_shannon <- ggplot(long_diversity, aes(method,shannon, color=type)) + geom_point(position = position_jitter(width=0.2)) + theme_stata() + scale_color_stata()
+plot_shannon <- ggplot(long_diversity, aes(method,shannon, color=type)) + geom_point(position = position_jitter(width=0.2)) + theme_hc() + scale_color_igv()
 plot_shannon
 ```
 
@@ -401,7 +415,7 @@ plot_shannon
 
 Calculate bray-curtis and compare denoising ja clustering results
 
-```{r, warning = FALSE, message = FALSE, size="tiny"}
+```{r, warning = FALSE, message = FALSE, size = "tiny"}
 #transform dada counts to relabundance
 dada <- transformAssay(dada, assay.type = "counts", method = "relabundance",
                        name = "relabundance")
@@ -413,10 +427,6 @@ dada_bray <- plotReducedDim(dada, "PCoA_BC")
 bray_dada_df <- data.frame(pcoa1 = dada_bray$data[,1],
                            pcoa2 = dada_bray$data[,2],
                            type = colData(dada)$Type)
-#create plot object
-plot_dada <- ggplot(data = bray_dada_df, aes(x=pcoa1, y=pcoa2,
-                                             color = type)) +
-    geom_point() + theme_stata(base_size=4) + scale_color_stata()
 #transform vsearch counts to relabundance
 vsearch <- transformAssay(vsearch, assay.type = "counts", method = "relabundance",
                           name = "relabundance")
@@ -428,15 +438,11 @@ vsearch_bray <- plotReducedDim(vsearch, "PCoA_BC")
 bray_vsearch_df <- data.frame(pcoa1 = vsearch_bray$data[,1],
                            pcoa2 = vsearch_bray$data[,2],
                            type = colData(vsearch)$Type)
-#create plot object
-plot_vsearch <- ggplot(data = bray_vsearch_df, aes(x=pcoa1, y=pcoa2,
-                                                   color = type)) +
-    geom_point() + theme_stata(base_size=4) + scale_color_stata()
 ```
 
-Combine pipeline results
+Combine dataframes
 
-```{r, warning = FALSE, message = FALSE, size="tiny"}
+```{r, warning = FALSE, message = FALSE, size = "tiny"}
 #combined df
 bray_both <- data.frame(dada1 = bray_dada_df$pcoa1,
                         dada2 = bray_dada_df$pcoa2,
@@ -444,21 +450,23 @@ bray_both <- data.frame(dada1 = bray_dada_df$pcoa1,
                         vsearch2 = bray_vsearch_df$pcoa2,
                         type = bray_dada_df$type)
 bray_both = data.frame(pcoa1=c(bray_both$dada1, bray_both$vsearch1),
-                       pcoa2=c(bray_both$dada2, bray_both$vsearch2))
+                       pcoa2=c(bray_both$dada2, bray_both$vsearch2),
+                       type=c(bray_dada_df$type,bray_dada_df$type))
 bray_both$method <- "dada2" 
-bray_both$method[132:262] <- "vsearch"
-
+bray_both$method[92:182] <- "vsearch"
 plot_both <- ggplot(bray_both, aes(pcoa1,pcoa2, color=method)) +
-    geom_point() + theme_stata(base_size=5) + scale_color_stata()
+    geom_point() +  facet_wrap(~ type) + theme_hc(base_size=8) + scale_color_igv() + stat_ellipse()
 ```
 
 \newpage
 
-Plot all to same figure
+Plot
 
-```{r, fig.dim = c(6.5, 7), size="tiny"}
-(plot_dada | plot_vsearch) / plot_both
+```{r, fig.dim = c(6.5, 7), size = "tiny"}
+(plot_both)
 ```
+
+Differences are very small
 
 \newpage
 
@@ -466,58 +474,50 @@ Recalculate indexes after taxonomy have been agglomerated from species to genus 
 
 ```{r, warning = FALSE, message = FALSE, size="tiny"}
 #calculate shannon indexes
-dada <- agglomerateByRank(dada, rank = "Genus")
-dada <- estimateDiversity(dada, index = "shannon")
-vsearch <- agglomerateByRank(vsearch, rank = "Genus")
-vsearch <- estimateDiversity(vsearch, index = "shannon")
+dada_2 <- agglomerateByRank(dada_2, rank = "Genus")
+dada_2 <- estimateDiversity(dada_2, index = "shannon")
+vsearch_2 <- agglomerateByRank(vsearch_2, rank = "Genus")
+vsearch_2 <- estimateDiversity(vsearch_2, index = "shannon")
 #create df with values and sample type
-shannon <- data.frame(dada2 = colData(dada)$shannon,
-                      vsearch = colData(vsearch)$shannon,
-                      type = colData(dada)$Type)
+shannon2 <- data.frame(dada2 = colData(dada_2)$shannon,
+                      vsearch = colData(vsearch_2)$shannon,
+                      type = colData(dada_2)$Type)
 #pivot table
-long_diversity <- shannon %>% pivot_longer(col = c(dada2,vsearch),
+long_diversity2 <- shannon2 %>% pivot_longer(col = c(dada2,vsearch),
                                            names_to = "method",
                                            values_to = "shannon")
 #plot data
-plot_shannon <- ggplot(long_diversity, aes(method,shannon, color=type)) +
-    geom_point(position = position_jitter(width=0.2)) + theme_stata() +
-    scale_color_stata()
-plot_shannon
+plot_shannon2 <- ggplot(long_diversity2, aes(method, shannon, color = type)) +
+    geom_point(position = position_jitter(width = 0.2)) + theme_hc() +
+    scale_color_igv()
+plot_shannon2
 ```
 
 \newpage
 
 ```{r, warning = FALSE, message = FALSE, size="tiny"}
 #transform dada counts to relabundance
-dada <- transformAssay(dada, assay.type = "counts",
+dada_2 <- transformAssay(dada_2, assay.type = "counts",
                        method = "relabundance", name = "relabundance")
 #create bray-curtis distance matrix
-dada <- runMDS(dada, FUN = vegan::vegdist, method = "bray",
+dada_2 <- runMDS(dada_2, FUN = vegan::vegdist, method = "bray",
                name="PCoA_BC", exprs_values = "relabundance")
-dada_bray <- plotReducedDim(dada, "PCoA_BC")
+dada_bray2 <- plotReducedDim(dada_2, "PCoA_BC")
 #create df for plot
-bray_dada_df <- data.frame(pcoa1 = dada_bray$data[,1],
-                           pcoa2 = dada_bray$data[,2],
-                           type = colData(dada)$Type)
-#create plot object
-plot_dada <- ggplot(data = bray_dada_df, aes(x=pcoa1, y=pcoa2,
-                                             color = type)) + geom_point() +
-    theme_stata(base_size=4) + scale_color_stata()
+bray_dada_df <- data.frame(pcoa1 = dada_bray2$data[,1],
+                           pcoa2 = dada_bray2$data[,2],
+                           type = colData(dada_2)$Type)
 #transform vsearch counts to relabundance
-vsearch <- transformAssay(vsearch, assay.type = "counts", method = "relabundance",
+vsearch_2 <- transformAssay(vsearch_2, assay.type = "counts", method = "relabundance",
                           name = "relabundance")
 #create bray-curtis distance matrix
-vsearch <- runMDS(vsearch, FUN = vegan::vegdist, method = "bray",
+vsearch_2 <- runMDS(vsearch, FUN = vegan::vegdist, method = "bray",
                name="PCoA_BC", exprs_values = "relabundance")
-vsearch_bray <- plotReducedDim(vsearch, "PCoA_BC")
+vsearch_bray2 <- plotReducedDim(vsearch_2, "PCoA_BC")
 #create df for plot
-bray_vsearch_df <- data.frame(pcoa1 = vsearch_bray$data[,1],
-                           pcoa2 = vsearch_bray$data[,2],
-                           type = colData(vsearch)$Type)
-#create plot object
-plot_vsearch <- ggplot(data = bray_vsearch_df, aes(x=pcoa1, y=pcoa2,
-                                                   color = type)) +
-    geom_point() + theme_stata(base_size=4) + scale_color_stata()
+bray_vsearch_df <- data.frame(pcoa1 = vsearch_bray2$data[,1],
+                           pcoa2 = vsearch_bray2$data[,2],
+                           type = colData(vsearch_2)$Type)
 ```
 
 ```{r, warning = FALSE, message = FALSE, size="tiny"}
@@ -528,12 +528,12 @@ bray_both <- data.frame(dada1 = bray_dada_df$pcoa1,
                        vsearch2 = bray_vsearch_df$pcoa2,
                        type = bray_dada_df$type)
 bray_both = data.frame(pcoa1=c(bray_both$dada1, bray_both$vsearch1),
-                       pcoa2=c(bray_both$dada2, bray_both$vsearch2))
+                       pcoa2=c(bray_both$dada2, bray_both$vsearch2),
+                       type=c(bray_dada_df$type,bray_dada_df$type))
 bray_both$method <- "dada2" 
-bray_both$method[132:262] <- "vsearch"
-
-plot_both <- ggplot(bray_both, aes(pcoa1,pcoa2, color=method)) +
-    geom_point() + theme_stata(base_size=5) + scale_color_stata()
+bray_both$method[132:182] <- "vsearch"
+plot_both <- ggplot(bray_both, aes(pcoa1,pcoa2, color=method)) + facet_wrap(~ type) +
+    geom_point() + theme_hc(base_size=7) + scale_color_igv() + stat_ellipse()
 ```
 
 \newpage
@@ -541,7 +541,7 @@ plot_both <- ggplot(bray_both, aes(pcoa1,pcoa2, color=method)) +
 Agglomerated pcoa plot
 
 ```{r, size="tiny", fig.dim = c(6.5, 7)}
-(plot_dada | plot_vsearch) / plot_both
+plot_both
 ```
 
 \newpage
@@ -554,13 +554,11 @@ Error profiles of short amplicon (truncated to 350 bp) follow expected frequency
 
 Proportion of unique reads is much smaller when compared to long amplicons.
 
-Thus, denoising seem to work normally on shorter read lengths in contrast to 1,5 kbp full-length 16S rRNA gene. This is not surprising as algorithm relies on error-free reads that are used to build variant clusters. In long reads, even 99,5 % accuracy is not enough. At 1400 bp 0,5 % mean error rate means 7 sequencing errors per read.
+Thus, denoising seem to work normally on shorter read lengths in contrast to 1,5 kbp full-length 16S rRNA gene.
 
-Shannon diversity results are higher when using vsearch. Which is also expected as at 99 % identity level clustering produces very high number of variants. Shannon values are brought much closer to each other, when data is agglomerated to genus level. Distribution of DNA sample values suggest that dada2 values probably reflect more likely reality.
+Shannon diversity results are higher when using vsearch. Clustering at 99 % identity level produces very high number of variants, so that might cause overestimation. Shannon values are brought much closer to each other, when data is agglomerated to genus level.
 
-Bray-curtis plots share lot of similarities with slight offset. Dada result seems more realistic as DNA sample results are more dispersed.
-
-Vsearch using 97 % identity level would produce otu counts much closer to dada2 ASV number.
+Bray-curtis plots are highly similar in samples with more than 10 000 counts.
 
 #### Advantages of nanopore
 
