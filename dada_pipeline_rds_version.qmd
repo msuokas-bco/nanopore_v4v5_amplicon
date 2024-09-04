@@ -1,7 +1,7 @@
 ---
 title: "Processing short nanopore reads with dada2"
 author: "Marko Suokas"
-format: docx
+format: pdf
 pdf-engine: lualatex
 editor: visual
 mainfont: Aptos
@@ -466,11 +466,11 @@ Plot
 (plot_both)
 ```
 
-Differences are very small
+Differences are small
 
 \newpage
 
-Recalculate indexes after taxonomy have been agglomerated from species to genus level.
+Recalculate indexes after taxonomy have been agglomerated to genus level
 
 ```{r, warning = FALSE, message = FALSE, size="tiny"}
 #calculate shannon indexes
@@ -531,7 +531,7 @@ bray_both = data.frame(pcoa1=c(bray_both$dada1, bray_both$vsearch1),
                        pcoa2=c(bray_both$dada2, bray_both$vsearch2),
                        type=c(bray_dada_df$type,bray_dada_df$type))
 bray_both$method <- "dada2" 
-bray_both$method[132:182] <- "vsearch"
+bray_both$method[92:182] <- "vsearch"
 plot_both <- ggplot(bray_both, aes(pcoa1,pcoa2, color=method)) + facet_wrap(~ type) +
     geom_point() + theme_hc(base_size=7) + scale_color_igv() + stat_ellipse()
 ```
@@ -548,17 +548,17 @@ plot_both
 
 #### Observations
 
-Customised sup basecalling produce quality matching Illumina ja Ion Torrent
+Customised sup basecalling produce high quality reads
 
 Error profiles of short amplicon (truncated to 350 bp) follow expected frequency
 
 Proportion of unique reads is much smaller when compared to long amplicons.
 
-Thus, denoising seem to work normally on shorter read lengths in contrast to 1,5 kbp full-length 16S rRNA gene.
+Thus, denoising seem to work normally on shorter read lengths
 
-Shannon diversity results are higher when using vsearch. Clustering at 99 % identity level produces very high number of variants, so that might cause overestimation. Shannon values are brought much closer to each other, when data is agglomerated to genus level.
+Shannon diversity results are higher when using vsearch. Clustering at 99 % identity level produces very high number of variants, so that might cause overestimation. Shannon values are brought much closer to each other, when data is agglomerated.
 
-Bray-curtis plots are highly similar in samples with more than 10 000 counts.
+Bray-curtis plots are very similar in samples with more than 10 000 counts.
 
 #### Advantages of nanopore
 
@@ -572,13 +572,13 @@ Libraries prepared for other platforms can be conveniently converted to nanopore
 
 Live basecalling allows controlling sequencing throughput and in some cases flow-cell can be reused
 
-Cost per bp in amplicon sequencing is great compared to MiSeq
+Cost per bp in amplicon sequencing is good compared to MiSeq
 
 #### Disadvantages of nanopore
 
 Homopolymer region accuracy is not quite as good as in Illumina
 
-High accuracy basecalling is computationally intensive
+High accuracy basecalling is computationally quite intensive
 
 Software tools are not at the same level as in other platforms and require more knowledge
 
