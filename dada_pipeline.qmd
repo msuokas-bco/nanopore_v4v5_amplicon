@@ -2,6 +2,8 @@
 title: "Processing short nanopore reads with dada2"
 author: "Marko Suokas"
 format: pdf
+geometry: "left=2cm,right=2cm,top=2cm,bottom=2cm" # Setting margins
+papersize: a4 
 pdf-engine: lualatex
 editor: visual
 mainfont: Aptos
@@ -13,8 +15,8 @@ header-includes:
    \definecolor{ivory}{rgb}{1.0, 1.0, 0.94}
 ---
 
-```{r, include=FALSE, message = FALSE, warning = FALSE}
-# This will allow to use different font sizes inside code chunks
+```{r font_size, include = F}
+# This will allow to use different font sizes inside code
 # Won't be included in the report
 def.chunk.hook  <- knitr::knit_hooks$get("chunk")
 knitr::knit_hooks$set(chunk = function(x, options) {
@@ -23,66 +25,125 @@ knitr::knit_hooks$set(chunk = function(x, options) {
 })
 ```
 
-#### Preprocess Ion Torrent adapter reads
+The document utilizes previously computed objects saved as RDS files. These objects are reloaded as needed. The original code can be executed by setting `eval = TRUE` or by running the chunk directly in RStudio
 
-*Trim forward reads with Adapter A and trP1(rc) sequences*
+#### **Preprocess Ion Torrent Adapter Reads**
 
-cutadapt -g "CCATCTCATCCCTGCGTGTCTCCGACTCAG;o=30…ATCACCGACTGCCCATAGAGAGG;o=23" --trimmed-only -e 0.05 -o ev_forward.fastq.gz ev_reads_hq.fastq.gz 
+1.  **Trim forward reads using Adapter A and the reverse complement of the trP1 sequence:**
 
-*Trim reverse reads with trP1 and Adapter A(rc) sequences*
+    ``` bash
+    cutadapt --trimmed-only -e 0.05 -o ev_forward.fastq.gz \
+    -g "CCATCTCATCCCTGCGTGTCTCCGACTCAG;o=30...ATCACCGACTGCCCATAGAGAGG;o=23" \
+    ev_reads_hq.fastq.gz
+    ```
 
-cutadapt -g ”CCTCTCTATGGGCAGTCGGTGAT;o=23…CTGAGTCGGAGACACGCAGGGATGAGATGG;o=30” --trimmed-only -e 0.05 -o ev_reverse.fastq.gz ev_reads_hq.fastq.gz
+2.  **Trim reverse reads using trP1 and the reverse complement of Adapter A:**
 
-*Reverse-complement reverse reads*
+    ``` bash
+    cutadapt --trimmed-only -e 0.05 -o ev_reverse.fastq.gz \
+    -g "CCTCTCTATGGGCAGTCGGTGAT;o=23...CTGAGTCGGAGACACGCAGGGATGAGATGG;o=30" \
+    ev_reads_hq.fastq.gz
+    ```
 
-seqkit seq -rp -t DNA -o ev_rcomp.fasta.gz ev_reverce.fasta.gz
+3.  **Generate reverse complements of the trimmed reverse reads:**
 
-*Merge with forward reads*
+    ``` bash
+    seqkit seq -rp -t DNA -o ev_rcomp.fasta.gz ev_reverse.fastq.gz
+    ```
 
-cat ev_forward.fasta.gz ev_rcomp.fasta.gz \> raw_005.fasta.gz
+4.  **Merge forward reads with reverse-complemented reverse reads:**
 
-*Import data to qiime*
+    ``` bash
+    cat ev_forward.fastq.gz ev_rcomp.fastq.gz > raw_005.fastq.gz
+    ```
 
-qiime tools import --type MultiplexedSingleEndBarcodeInSequence --input-path raw_005.fasta.gz --output-path raw_005.qza 
+------------------------------------------------------------------------
 
-*Demultiplex*
+#### Import Data into QIIME2
 
-qiime cutadapt demux-single --i-seqs raw_005.qza --m-barcodes-file jt_meta.tsv --m-barcodes-column Barcode_seq --output-dir demuxed --p-error-rate 0 --p-anchor-barcode
+5.  **Import the merged reads into QIIME2:**
 
-*Trim pcr primers (519F and 926R)*
+    ``` bash
+    qiime tools import --type 'MultiplexedSingleEndBarcodeInSequence' \
+    --input-path raw_005.fastq.gz --output-path raw_005.qza
+    ```
 
-qiime cutadapt trim-single --i-demultiplexed-sequences per_sample_sequences.qza --p-overlap 15 --p-discard-untrimmed --p-front ACAGCMGCCGCGGTAATWC --o-trimmed-sequences trim1.qza
+------------------------------------------------------------------------
 
-qiime cutadapt trim-single --i-demultiplexed-sequences trim1.qza --p-adapter AAACTCAAAKGAATTGACGG --o-trimmed-sequences trimmed-sequences.qza
+#### Demultiplexing
 
-*Decompress read files*
+6.  **Demultiplex the reads:**
 
-unzip trimmed-sequences.qza
+    ``` bash
+    qiime cutadapt demux-single --i-seqs raw_005.qza \
+    --m-barcodes-file jt_meta.tsv --m-barcodes-column Barcode_seq \
+    --output-dir demuxed --p-error-rate 0 --p-anchor-barcode
+    ```
 
-**Note.** Parameters allow one error in sequencing adapters, no errors in barcode sequence and 1 and 2 errors in pcr primers, respectively.
+------------------------------------------------------------------------
 
-**Note.** Some options in commands require double dash and are not displayed correctly in rendered documents.
+#### Trim PCR Primers
 
-#### Load libraries
+7.  **Trim the PCR primers (519F and 926R):**
 
-```{r libraries, warning=FALSE, message=FALSE, size="tiny"}
-library(dada2);packageVersion("dada2")
-library(knitr);packageVersion("knitr")
-library(Biostrings);packageVersion("Biostrings")
-library(DECIPHER);packageVersion("DECIPHER")
-library(phyloseq);packageVersion("phyloseq")
-library(tidyverse);packageVersion("tidyverse")
-library(kableExtra);packageVersion("kableExtra")
-library(mia);packageVersion("mia")
-```
+    -   **Trim forward primers (519F):**
+
+    ``` bash
+    qiime cutadapt trim-single --p-front ACAGCMGCCGCGGTAATWC --p-overlap 15 \
+    --i-demultiplexed-sequences demuxed/per_sample_sequences.qza \
+     --p-discard-untrimmed --o-trimmed-sequences trim1.qza
+    ```
+
+    -   **Trim reverse primers (926R):**
+
+    ``` bash
+    qiime cutadapt trim-single --i-demultiplexed-sequences trim1.qza \
+    --p-adapter AAACTCAAAKGAATTGACGG \
+    --o-trimmed-sequences  trimmed-sequences.qza
+    ```
+
+------------------------------------------------------------------------
+
+#### Decompress QIIME Artifact
+
+8.  **Extract the sequences from the QIIME2 artifact:**
+
+    ``` bash
+    unzip trimmed-sequences.qza
+    ```
+
+------------------------------------------------------------------------
+
+**Notes**
+
+-   **Error allowances**: The parameters allow one sequencing error in the adapters, no errors in barcode sequences, and 1-2 errors in the PCR primers.
+-   **Command formatting**: Some options use double dashes (`--`), but they may not render correctly in some text formats.
 
 \newpage
 
+#### Load libraries
+
+```{r libraries, warning = F, message = F, size = "tiny"}
+library(dada2)
+library(mia)
+library(vegan)
+library(scater)
+library(Biostrings)
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(ggthemes)
+library(ggsci)
+library(patchwork)
+```
+
 #### Set parameters
 
-```{r parameters, warning=FALSE,message=FALSE, size="tiny"}
+```{r parameters, warning = F, message = F, size = "tiny"}
 # Path variables
 path <- "data/reads/"
+silva <- "~/feature_classifiers/silva_nr99_v138.1_train_set.fa.gz"
+species <- "~/feature_classifiers/silva_species_assignment_v138.1.fa.gz"
 training <- "~/feature_classifiers/SILVA_SSU_r138_2019.RData"
 meta_file <- "data/jt_meta.tsv"
 exportloc <- "results/"
@@ -91,27 +152,33 @@ truncation <- 350
 #Creates results directory
 dir.create(exportloc)
 #metadata
-metadata <- data.frame(read_tsv(meta_file))
+metadata <- data.frame(read_tsv(meta_file, show_col_types = F))
 #set knitr cache path
 knitr::opts_chunk$set(cache.path = "cache/")
 ```
 
 #### Import reads
 
-nr072 was removed from dataset (0 reads causing error in denoising step).
+Sample nr072 was removed from dataset (0 reads)
 
-```{r import, warning=FALSE, message=FALSE, size="tiny"}
+```{r import, warning = F, message = F, size = "tiny"}
 # Forward fastq filenames have format: SAMPLENAME_R1_001.fastq
-fnFs <- sort(list.files(path, pattern="L001_R1_001.fastq.gz", full.names = TRUE))
+fnFs <- sort(list.files(path, pattern="L001_R1_001.fastq.gz", full.names = T))
 # Extract sample names, assuming filenames have format: SAMPLENAME_XXX.fastq.gz
 sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
 ```
 
-Checking quality of first reads
+Check read quality of first samples
 
-```{r quality_plot, warning=FALSE, message=FALSE, size="tiny"}
+```{r quality_plot, warning = F, message=F, size = "tiny", eval = F}
 # Base quality plot
 p <- plotQualityProfile(fnFs[1:4], n = 50000)
+p
+```
+
+```{r, warning=F, message=F, size = "tiny", fig.dim = c(7,7)}
+# Load base quality plot from saved object
+p <- readRDS("rds/qplot.rds")
 p
 ```
 
@@ -119,46 +186,68 @@ p
 
 #### Filter and trim reads
 
-```{r filter, warning=FALSE, message=FALSE, size="tiny", cache=TRUE}
+```{r filter, warning = F, message = F, size = "tiny", eval = F}
+# Filtered files are placed in filtered subdirectory
+filtFs <- file.path(path, "filtered", paste0(sample.names,
+                                             "_F_filt.fastq.gz"))
+# For single end data sets, maxEE default values
+names(filtFs) <- sample.names
+out <- filterAndTrim(fnFs, filtFs, truncLen=truncation,
+                     maxN = 0, maxEE = 2 , truncQ = 2,
+                     compress = T, multithread = F,
+                     rm.phix = F)
+saveRDS(out, file = "rds/out.rds")
+```
+
+```{r, warning = F, message = F, size = "tiny"}
 # Filtered files are placed in filtered subdirectory
 filtFs <- file.path(path, "filtered", paste0(sample.names,
                                              "_F_filt.fastq.gz"))
 # For single end data sets without phix control
 names(filtFs) <- sample.names
-out <- filterAndTrim(fnFs, filtFs, truncLen=truncation,
-                     maxN = 0, maxEE = 2 , truncQ = 2,
-                     compress = TRUE, multithread = FALSE,
-                     rm.phix = FALSE)
-saveRDS(out, file = "rds/out.rds")
+# Load previously saved object
+out <-readRDS("rds/out.rds")
 ```
 
 #### Learn and plot error profile
 
-```{r learnerrors, warning=FALSE, message=FALSE, size="tiny", cache=TRUE}
+```{r learnerrors, warning = F, message = F, size = "tiny", eval = F}
 # Forward read error rate
-errF <- learnErrors(filtFs, multithread = TRUE)
+errF <- learnErrors(filtFs, multithread = T)
 saveRDS(errF, file = "rds/errF.rds")
 ```
 
+```{r, warning = F, message = F, size="tiny"}
+# Load previously saved object
+errF <- readRDS("rds/errF.rds")
+```
+
+\newpage
+
 Plot error profile
 
-```{r plot_errors, warning=FALSE, message=FALSE, size="tiny"}
+```{r plot_error, warning = F, message = F, size = "tiny", fig.dim = c(7,7)}
 # Plotting error rate profile for forward reads
-plotErrors(errF, nominalQ = TRUE)
+plotErrors(errF, nominalQ = T)
 ```
 
 \newpage
 
 #### Denoise sequences
 
-```{r denoise, warning=FALSE, message=FALSE, size="tiny", cache=TRUE}
-dadaFs <- dada(filtFs, err = errF, multithread = TRUE, verbose = FALSE)
+```{r denoise, warning = F, message = F, size="tiny", eval = F}
+dadaFs <- dada(filtFs, err = errF, multithread = T, verbose = F)
 saveRDS(dadaFs, file = "rds/dadaFs.rds")
+```
+
+```{r, warning = FALSE, message = FALSE, size="tiny"}
+# Load previously saved object
+dadaFs <- readRDS("rds/dadaFs.rds")
 ```
 
 #### Build ASV table
 
-```{r table, warning=FALSE, message=FALSE, size="tiny"}
+```{r asv_table, warning = F, message = F, size = "tiny"}
 seqtab <- makeSequenceTable(dadaFs)
 # Dimensions of ASV table
 dim(seqtab)
@@ -166,15 +255,15 @@ dim(seqtab)
 
 Remove chimeric variants
 
-```{r chimera, warning=FALSE, message=FALSE, size="tiny"}
+```{r chimera, warning = F, message = F, size = "tiny"}
 seqtab.nochim <- removeBimeraDenovo(seqtab, method = "consensus",
-                                    multithread = TRUE, verbose = TRUE)
+                                    multithread = T)
 dim(seqtab.nochim)
 ```
 
 Amount of data remaining after chimera removal
 
-```{r, warning=FALSE, message=FALSE, size="tiny"}
+```{r, warning = F, message = F, size = "tiny"}
 sum(seqtab.nochim)/sum(seqtab)
 ```
 
@@ -182,16 +271,18 @@ sum(seqtab.nochim)/sum(seqtab)
 
 #### Summary table
 
-```{r summary, warning=FALSE, message=FALSE, size="small"}
+```{r summary, warning = F, message = F, size = "tiny"}
+#If processing a single sample, remove the sapply calls
 getN <- function(x) sum(getUniques(x))
 track <- cbind(out, sapply(dadaFs, getN), rowSums(seqtab.nochim),
                rowSums(seqtab.nochim != 0))
-#If processing a single sample, remove the sapply calls
 colnames(track) <- c("Input", "Filtered", "DenoisedF", "Nonchimeric",
                      "N:o of variants")
 rownames(track) <- sample.names
-kable(track, caption="Summary table", booktabs = TRUE, longtable = TRUE)  %>%
-  kable_styling(latex_options=c("striped", "HOLD_position", "repeat_header")) %>%
+#table
+kable(track, caption="Summary table", booktabs = T, longtable = T)  %>%
+  kable_styling(latex_options=c("striped", "HOLD_position", "repeat_header"),
+                font_size = 11) %>%
                 row_spec(0,background = "teal", color = "ivory")
 ```
 
@@ -199,138 +290,289 @@ kable(track, caption="Summary table", booktabs = TRUE, longtable = TRUE)  %>%
 
 #### Assign taxonomy
 
-```{r idtaxa, warning=FALSE, message=FALSE, size="tiny", cache=TRUE}
+```{r idtaxa, warning = F, message = F, size = "tiny", eval = F}
 #Create a DNAStringSet from the ASV sequences
-repseq <- DNAStringSet(getSequences(seqtab.nochim))
-# CHANGE TO THE PATH OF YOUR TRAINING SET
-load(training)
-ids <- IdTaxa(repseq, trainingSet, strand = "top",
-              processors = 3, verbose = FALSE,
-              threshold = 50)
-ranks <- c("domain", "phylum", "class", "order", "family",
-           "genus", "species") 
-# Convert the output to a matrix analogous to the output from assignTaxonomy
-taxid <-t(sapply(ids, function(x) {
-        m <- match(ranks, x$rank)
-        taxa <- x$taxon[m]
-        taxa[startsWith(taxa, "unclassified_")] <- NA
-        taxa
-}))
-colnames(taxid) <- ranks; rownames(taxid) <- getSequences(seqtab.nochim)
-saveRDS(taxid, file = "rds/taxid.rds")
+#taxonomy <- assignTaxonomy(seqtab.nochim, silva, multithread=3)
+taxonomy <- addSpecies(taxonomy, species, n = 500)
+saveRDS(taxonomy, "rds/taxonomy.rds")
+```
+
+```{r, warning = F, message = F, size = "tiny"}
+# Load previously saved object
+taxonomy <- readRDS("rds/taxonomy.rds")
+```
+
+#### Create tse object
+
+```{r create_tse, warning = F, message = F, size = "tiny"}
+#Counts table
+counts <- t(seqtab.nochim)
+repseq <- DNAStringSet(rownames(counts))
+rownames(counts) <- NULL
+ASV_names <- paste0("ASV",  seq(nrow(counts)))
+#Taxonomy table
+rownames(taxonomy) <- NULL
+#Metadata
+#Create tse
+tse <- TreeSummarizedExperiment(assays = list(counts = counts),
+                                rowData = DataFrame(taxonomy),
+                                colData = DataFrame(metadata))
+names(repseq) <- ASV_names
+referenceSeq(tse) <- repseq
+#View
+tse
+```
+
+Some additional pruning
+
+```{r pruning, message = F, warning = F, size = "tiny"}
+#remove taxa with unknown kingdom, discard empty
+tse <- tse[rowData(tse)$Kingdom %in% "Bacteria" |
+           rowData(tse)$Kingdom %in% "Archaea" |
+           !is.na(rowData(tse)$Kingdom)]
+#remove chloroplastic taxa, keep empty
+tse <- tse[!rowData(tse)$Order %in% "Chloroplast" | is.na(rowData(tse)$Order)]
+#remove mitochondrial taxa, keep empty
+tse <- tse[!rowData(tse)$Family %in% "Mitochondria" | is.na(rowData(tse)$Family)]
+#final object dimensions
+dim(tse)
+```
+
+#### Write data
+
+Last step is to save data to suitable file formats.
+
+```{r, warning = F, message = F, size = "tiny"}
+saveRDS(tse, "rds/tse.rds")
+```
+
+Variant sequences are saved to fasta
+
+```{r, warning = FALSE, message = FALSE, size = "tiny"}
+tse %>% referenceSeq() %>% writeXStringSet(paste0(exportloc,"/repseq.fasta"),
+                                           append=FALSE, compress=FALSE,
+                                           format="fasta")
+```
+
+Taxonomy is read from rowData and written
+
+```{r, warning = F, message = F, size = "tiny"}
+taxfile <- as.data.frame(rowData(tse))
+taxfile %>% rownames_to_column(var = "Variant") %>%
+  write_tsv(file=paste0(exportloc,"/taxonomy.tsv"))
 ```
 
 \newpage
 
-#### Build phyloseq object
+Metadata is read from colData and written
 
-```{r phyloseq, warning=FALSE, message=FALSE, size="tiny", cache=TRUE}
-pseq <- phyloseq(otu_table(seqtab.nochim, taxa_are_rows = FALSE),
-                 tax_table(taxid))
-row.names(metadata) <- sample_names(pseq)
-sample_data(pseq) <- metadata
-pseq
+```{r, warning = F, message = F, size = "tiny"}
+metadf <- data.frame(Sampleid = rownames(colData(tse)), colData(tse))
+write_tsv(metadf, paste0(exportloc, "/metadata.tsv"))
 ```
 
-```{r, warning=FALSE, message=FALSE, size="tiny"}
-#create sequences from rownames to refseq 
-seqs <- DNAStringSet(taxa_names(pseq))
-names(seqs) <- taxa_names(pseq)
-pseq <- merge_phyloseq(pseq, seqs)
-#new variant names
-taxa_names(pseq) <- paste0("ASV", seq(ntaxa(pseq)))
-#capitalise taxonomic ranks
-colnames(tax_table(pseq)) <- c("Kingdom", "Phylum", "Class", 
-  "Order", "Family", "Genus", "Species")
+Counts are read from counts and written
+
+```{r, warning = F, message = F, size = "tiny"}
+ASV_counts <- as.data.frame(assays(tse)$counts)
+ASV_counts %>% rownames_to_column(var= "Variant") %>%
+write_tsv(file = paste0(exportloc, "/asvs.tsv"))
 ```
 
-Remove non-bacterial variants
+#### Vsearch denovo clustering (99%) data from Qiime
 
-```{r, warning=FALSE, message=FALSE, size="tiny"}
-#remove non-bacterial taxa
-pseq <- subset_taxa(pseq, Kingdom != is.na(Kingdom))
-pseq <- subset_taxa(pseq, Kingdom != "Eukaryota")
-pseq
+```{r import_qiime, warning = F, message = F, size = "tiny"}
+#Counts
+counts <- read_tsv("data/qiime/feature-table.tsv", show_col_types =F)
+counts <- counts[,2:ncol(counts)]
+ASV_names <- paste0("ASV", seq(1:nrow(counts)))
+#Taxonomy table
+taxonomy <- readRDS("data/qiime/taxid.rds")
+rownames(taxonomy) <- NULL
+colnames(taxonomy) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+#Project metadata
+metadata <- read_tsv("data/qiime/jt_meta2.tsv", show_col_types = F)
+rownames(metadata) <- NULL
+#Create TSE
+tseq <- TreeSummarizedExperiment(assays = list(counts = counts),
+                                 rowData = DataFrame(taxonomy),
+                                 colData = DataFrame(metadata))
+rownames(tseq) <- ASV_names
+#View
+tseq
+```
+
+Pruning data before comparison
+
+```{r, warning = FALSE, message = FALSE, size = "tiny"}
+#Remove sampleid nr072
+tseq <- tseq[, colnames(tseq) != "nr072"]
+tseq
+#remove taxa with unknown kingdom, discard empty
+tseq <- tseq[rowData(tseq)$Kingdom %in% "Bacteria" | !is.na(rowData(tseq)$Kingdom),]
+#remove chloroplastic taxa, keep empty
+tseq <- tseq[!rowData(tseq)$Order %in% "Chloroplast" | is.na(rowData(tseq)$Order),]
+#remove mitochondrial taxa, keep empty
+tseq <- tseq[!rowData(tseq)$Family %in% "Mitochondria" | is.na(rowData(tseq)$Family),]
+#final object dimensions
+dim(tseq)
 ```
 
 \newpage
 
-#### Write results to files
+Filter low abundance otus
 
-Abundance table is transponed and written as tsv file
+```{r, warning = F, message = F, size = "tiny"}
+# Extract the counts matrix from tseq and convert to data frame
+qiime_data <- assays(tseq)$counts
 
-```{r, warning=FALSE, message=FALSE, size="tiny"}
-#variant names in rows
-ASV_names <- taxa_names(pseq)
-#sample names will be columns
-ASV_counts <- t(otu_table(pseq))
-ASVdf <- (data.frame(ASV_names,ASV_counts))
-#write
-write_tsv(ASVdf, paste0(exportloc,"asvs.tsv"))
+# Add row sums, filter rows where sum > 9, and retain row names
+qiime_data <- data.frame(ASV = rownames(tseq),qiime_data) %>%
+  mutate(sum = rowSums(qiime_data)) %>%
+  filter(sum > 9) %>% column_to_rownames("ASV")
+tseq_filtered <- tseq[rownames(qiime_data),]
+# Check the result
+tseq_filtered
 ```
 
-Likewise taxonomy table is saved as tsv
+Remove samples containing less than 10 000 counts in total
 
-```{r, warning=FALSE, message=FALSE, size="tiny"}
-#variant names in rows
-ASV_names <- taxa_names(pseq)
-#taxonomy ranks in columns
-taxonomy <- (data.frame(ASV_names, tax_table(pseq)))
-#write
-write_tsv(taxonomy,paste0(exportloc,"taxonomy.tsv"))
+```{r, warning = FALSE, message = FALSE, size = "tiny"}
+#create column for total counts
+colData(tse)$Sum <- colSums(assays(tse)$counts)
+colData(tseq)$Sum <- colSums(assays(tseq)$counts)
+colData(tseq_filtered)$Sum <- colSums(assays(tseq_filtered)$counts)
+#filter samples that have over 10 000 counts
+tse <- tse[,colData(tse)$Sum >= 10000]
+tseq <- tseq[, colData(tseq)$Sum >= 10000]
+tseq_filtered <- tseq_filtered[, colData(tseq_filtered)$Sum >= 10000]
+dim(tse)
+dim(tseq)
+dim(tseq_filtered)
+#create second copies
+#tse2 <- tse
+#tseq2 <- tseq
 ```
 
-Variant sequences are saved into fasta file
+Calculate shannon index and compare denoising ja clustering results
 
-```{r, warning=FALSE, message=FALSE, size="tiny"}
-pseq %>% refseq() %>% writeXStringSet(paste0(exportloc,"repseq.fasta"),
-                                      append = FALSE, compress = FALSE,
-                                      format = "fasta")
+```{r, warning = FALSE, message = FALSE, size = "tiny"}
+#calculate shannon indexes
+tse <- estimateDiversity(tse, index = "shannon")
+tseq <- estimateDiversity(tseq, index = "shannon")
+tseq_filtered <- estimateDiversity(tseq_filtered, index = "shannon")
+#create df with values and sample type
+shannon <- data.frame(dada2 = colData(tse)$shannon, vsearch = colData(tseq)$shannon,
+                      filtered = colData(tseq_filtered)$shannon,
+                      type = colData(tse)$Type)
+#pivot table
+long_diversity <- shannon %>% pivot_longer(col = c(dada2,vsearch,filtered),
+                                           names_to = "method",
+                                           values_to = "shannon")
+#plot data
+plot_shannon <- ggplot(long_diversity, aes(method,shannon, color=type)) +
+    geom_point(position = position_jitter(width=0.2)) + theme_hc() +
+    scale_color_igv()
+plot_shannon
 ```
 
-Compatible metadata file as tsv
+Calculate bray-curtis and compare denoising ja clustering results
 
-```{r, warning=FALSE, message=FALSE, size="tiny"}
-sampleid <- sample_names(pseq)
-metafile <- sample_data(pseq)
-metadf <- data.frame(sampleid,metafile)
-write_tsv(metadf, paste0(exportloc,"metadata.tsv"))
+```{r, warning = FALSE, message = FALSE, size = "tiny"}
+#transform dada counts to relabundance
+tse <- transformAssay(tse, assay.type = "counts", method = "relabundance",
+                       name = "relabundance")
+#create bray-curtis distance matrix
+tse <- runMDS(tse, FUN = vegan::vegdist, method = "bray",
+               name="PCoA_BC", exprs_values = "relabundance")
+dada_bray <- plotReducedDim(tse, "PCoA_BC")
+#create df for plot
+dada_df <- data.frame(pcoa1 = dada_bray$data[,1],
+                           pcoa2 = dada_bray$data[,2],
+                           type = colData(tse)$Type)
+#transform vsearch counts to relabundance
+tseq <- transformAssay(tseq, assay.type = "counts", method = "relabundance",
+                          name = "relabundance")
+#create bray-curtis distance matrix
+tseq <- runMDS(tseq, FUN = vegan::vegdist, method = "bray",
+               name="PCoA_BC", exprs_values = "relabundance")
+vsearch_bray <- plotReducedDim(tseq, "PCoA_BC")
+#create df for plot
+vsearch_df <- data.frame(pcoa1 = vsearch_bray$data[,1],
+                           pcoa2 = vsearch_bray$data[,2],
+                           type = colData(tseq)$Type)
+#transform vsearch counts to relabundance
+tseq_filtered <- transformAssay(tseq_filtered, assay.type = "counts", method = "relabundance",
+                          name = "relabundance")
+tseq_filtered <- runMDS(tseq_filtered, FUN = vegan::vegdist, method = "bray",
+               name="PCoA_BC", exprs_values = "relabundance")
+filtered_bray <- plotReducedDim(tseq_filtered, "PCoA_BC")
+#create df for plot
+filtered_df <- data.frame(pcoa1 = filtered_bray$data[,1],
+                           pcoa2 = filtered_bray$data[,2],
+                           type = colData(tseq_filtered)$Type)
 ```
 
-#### Observations
+Combine dataframes
 
-Customised sup basecalling of nanopore sequences produce quality matching Illumina ja Ion Torrent
+```{r, warning = FALSE, message = FALSE, size = "tiny"}
+#combined df
+bray_both <- data.frame(dada1 = dada_df$pcoa1,
+                        dada2 = dada_df$pcoa2,
+                        vsearch1 = vsearch_df$pcoa1,
+                        vsearch2 = vsearch_df$pcoa2,
+                        filtered1 = filtered_df$pcoa1,
+                        filtered2 = filtered_df$pcoa2,
+                        type = dada_df$type)
+bray_both = data.frame(pcoa1=c(bray_both$dada1, bray_both$vsearch1,
+                               bray_both$filtered1),
+                       pcoa2=c(bray_both$dada2, bray_both$vsearch2,
+                               bray_both$filtered2),
+                       type=c(dada_df$type,dada_df$type, dada_df$type))
+bray_both$method <- "dada2" 
+bray_both$method[92:182] <- "vsearch"
+bray_both$method[183:273] <- "filtered"
+plot_pcoa <- ggplot(bray_both, aes(pcoa1,pcoa2, color=method)) +
+    geom_point() +  facet_wrap(~ type) + theme_hc(base_size=8) + scale_color_igv() + stat_ellipse()
+```
 
-Error profiles of short amplicon (truncated to 350 bp) follow expected frequency
+\newpage
 
-Proportion of unique reads is smaller when compared to long amplicons
+Plot Bray-Curtis
 
-Thus, denoising works on shorter read lengths in contrast to 1,5 kbp full-length 16S rRNA gene. This is expected as algorithm relies on error-free reads that are used to build variant clusters. In long reads, even 99,5 % accuracy is not enough.
+```{r, fig.dim = c(6, 5), size = "tiny"}
+(plot_pcoa)
+```
 
-#### Advantages of nanopore
+**Observations**
 
-Read length is not limiting factor while designing amplicon targets
+-   Customized sup basecalling produces high-quality reads.
+-   The error profiles of short amplicons (truncated to 350 bp) align with expected frequencies using the DADA2 `learnErrors` function.
+-   The proportion of unique reads is much smaller compared to long amplicons.
+-   Number of unique perfect matches found by DADA2`addSpecies` is well within expected range
+-   Overall, the findings suggest that denoising can effectively process short ONT reads.
+-   Shannon diversity is higher when using VSEARCH. Clustering at 99% identity produces a large number of variants, potentially causing overestimation. Filtering OTUs with fewer than 10 counts brings the Shannon index closer to DADA2 results.
+-   Bray-Curtis plots are very similar for samples with more than 10,000 counts.
 
-Base quality doesn't decrease as a function of read length
+------------------------------------------------------------------------
 
-Low diversity libraries are not problem in sequencing
+\newpage
 
-Libraries prepared for other platforms can be conveniently converted to nanopore
+**Advantages of Nanopore**
 
-Live basecalling allows controlling sequencing throughput and in some cases flow-cell can be reused
+-   Read length is not a limiting factor when designing amplicon targets.
+-   Base quality does not decrease with read length.
+-   Low-diversity libraries are not a problem for nanopore sequencing chemistry.
+-   Libraries prepared for other platforms can be conveniently converted to nanopore.
+-   Live basecalling allows real-time control of sequencing throughput, and in some cases, the flow cell can be reused.
+-   Cost per base in amplicon sequencing is competitive compared to MiSeq.
 
-Cost per bp in amplicon sequencing is great compared to MiSeq
+------------------------------------------------------------------------
 
-#### Disadvantages of nanopore
+**Disadvantages of Nanopore**
 
-Homopolymer region accuracy is not quite as good as in Illumina
-
-High accuracy basecalling is computationally intensive (requires modern gpu with lot of ram)
-
-Software tools are not at the same level as in other platforms and require some knowledge
-
-Consistency of flow-cells (number of functional pores) and repeatibility of sequencing is so far unclear
-
-Pores might die if library preparation contains contaminants originating from sample preparation (concerns mainly genomic sequencing)
-
-#### 
+-   Homopolymer region accuracy is not as good as Illumina.
+-   High-accuracy basecalling is computationally intensive.
+-   Software tools are less mature compared to other platforms and require more technical expertise.
+-   The consistency of flow cells (e.g., number of functional pores) and sequencing repeatability are not yet fully clear. The shelf life of flow cells is uncertain; Oxford Nanopore provides a 3-month guarantee from the delivery date.
+-   Pores may degrade if the library preparation contains contaminants from samples (especially a concern for genomic or transcriptomic sequencing).
