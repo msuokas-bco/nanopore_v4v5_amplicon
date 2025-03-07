@@ -1,10 +1,7 @@
-Description of files
+#### Processing and analysis of nanopore sequences
 
-dada_pipeline.qmd - quarto document performing dada2 denoising for directory of fastq files
-includes also vseaarch clustering results and comparison of two different methods
+Data set consists of 16S rRNA amplicons (519F-926R) sequenced on ONT Minion R10.4.1. Data was basecalled with dorado 0.8.1 version using sup basecalling and filtering of low quality sequences.
 
-dada_pipeline.pdf - rendered pdf document
+Data was then processed in QIIME 2 with vsearch plugin using de-novo feature clustering at 97 % identity level.
 
-dada_pipeline.docx - rendered docx document
-
-Data is currently unpublished, so source and resource files are hidden and samples anonymised. Please, treat data with respect.
+The data is currently unpublished.
